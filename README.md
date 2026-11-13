@@ -8,6 +8,7 @@ Ein Eröffnungstrainer für Schach im Browser. Du lernst Eröffnungen Zug für Z
 - **Lernen:** Ein Pfeil zeigt den Theoriezug, dazu gibt es die Idee hinter dem Zug.
 - **Abfragen:** Du spielst ohne Hilfe. Fehler werden gezählt, Varianten mit Fehlern kommen öfter dran.
 - **Meine Partien:** PGN-Dateien von Chess.com hochladen und Top 3, Bilanz und häufigste Abweichungen sehen.
+- **Computer-Gegner (Stockfish 18):** Der Gegner variiert seine Theoriezüge und weicht auf Wunsch überraschend von der Theorie ab. Nach dem Ende einer Variante spielst du gegen den Computer weiter. Er bewertet jeden deiner Züge (Bester Zug bis Grober Fehler), zeigt den besseren Zug und antwortet in der eingestellten Stärke.
 - **Speichern in GitHub:** Der Lernstand wird automatisch als `fortschritt.json` im Branch `fortschritt` dieses Repositorys gespeichert.
 
 ## Starten
@@ -18,7 +19,7 @@ Die App ist eine statische Webseite. Am einfachsten über GitHub Pages:
 2. Bei **Source** „Deploy from a branch“ wählen, Branch `main`, Ordner `/ (root)`.
 3. Nach etwa einer Minute läuft die App unter `https://<benutzer>.github.io/Schach-Trainer/`.
 
-Lokal genügt es, `index.html` im Browser zu öffnen.
+Lokal brauchst du einen kleinen Webserver, weil Browser die Engine nicht direkt aus einer Datei laden: `python3 -m http.server` im Ordner starten und `http://localhost:8000` öffnen. Ohne Webserver läuft der Trainer trotzdem, nur ohne Computer-Gegner.
 
 ## Fortschritt automatisch speichern
 
@@ -42,5 +43,20 @@ Der Fortschritt liegt absichtlich in einem eigenen Branch, damit GitHub Pages ni
 | `js/openings.js` | Eröffnungsdatenbank (Varianten mit Erklärungen in geschweiften Klammern) |
 | `js/app.js` | Brett, Trainer, Lernsystem, PGN-Auswertung |
 | `js/sync.js` | Automatisches Speichern über die GitHub-API |
+| `js/engine.js` | Anbindung an Stockfish (UCI über Web Worker) |
+| `js/vendor/chess.js` | Schachregeln ([chess.js](https://github.com/jhlywa/chess.js) 0.10.3, BSD-Lizenz) |
+| `engine/` | [Stockfish.js](https://github.com/nmrugg/stockfish.js) 18 lite, GPL-3.0 (siehe `engine/Copying.txt`) |
 
 Neue Varianten trägst du in `js/openings.js` ein. Züge in englischer Notation (N, B, R, Q, K), Kommentare direkt hinter dem Zug in `{…}`.
+
+## Computer-Gegner
+
+Im Trainer findest du rechts den Abschnitt **Computer-Gegner**:
+
+- **Stärke:** von Anfänger (~600) bis Maximum. Schwächere Stufen wählen zufällig unter mehreren guten Zügen und machen gelegentlich schwächere Züge.
+- **Gegner weicht von der Theorie ab:** Nie, Manchmal oder Oft. Dann spielt der Gegner einen plausiblen Zug außerhalb der Theorie, und ab da bewertet der Computer deine Züge.
+- **Nach dem Ende der Variante:** weiterspielen oder anhalten.
+
+Spielst du in der Theoriephase einen anderen Zug, sagt dir der Computer, wie gut er war. Mit „frei weiterspielen“ kannst du die Partie mit deinem Zug fortsetzen. Nach einer Ungenauigkeit oder einem Fehler wartet der Computer: Du kannst zurücknehmen oder bewusst so weiterspielen.
+
+Die Engine ist Stockfish 18 in der „lite single-threaded“-Variante (etwa 7 MB). Sie läuft komplett im Browser, ohne Server.

@@ -190,3 +190,25 @@ td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;text-align:ri
 .form input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);font:inherit}
 .form .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 @media (max-width:760px){.sync{grid-template-columns:minmax(0,1fr)}}
+
+/* Computer-Gegner */
+.board-wrap{display:flex;gap:8px;align-items:stretch}
+.board-wrap .board{flex:1;min-width:0}
+.evalbar{position:relative;width:16px;flex:0 0 16px;border-radius:4px;overflow:hidden;background:#2a2d2b;display:flex;flex-direction:column;justify-content:flex-end}
+.evalbar.me-b{background:#f4f4ef}
+.ev-fill{width:100%;transition:height .4s ease}
+.ev-fill.w{background:#f4f4ef} .ev-fill.b{background:#2a2d2b}
+.ev-num{position:absolute;left:0;right:0;bottom:4px;text-align:center;font-family:var(--f-mono);font-size:.55rem;font-weight:600;color:#7a7f7c;writing-mode:vertical-rl;transform:rotate(180deg)}
+.cpu{display:flex;flex-direction:column;gap:4px}
+.cpu label{font-size:.82rem;font-weight:500;margin-top:4px}
+.cpu select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);color:var(--ink);font:inherit;font-size:.86rem}
+.cpu .eng-off{color:var(--bad)} .cpu .eng-ready{color:var(--good)}
+.engine-say{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.fb-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.small-btn{padding:4px 10px;font-size:.82rem}
+.fb .small-btn{margin-top:6px}
+.moves sup{font-weight:600;margin-left:1px}
+.moves .q-best,.moves .q-good{color:var(--good)}
+.moves .q-inacc{color:var(--warn)} .moves .q-mistake,.moves .q-blunder{color:var(--bad)}
+.moves .freesep{color:var(--accent);margin-right:6px;font-weight:600}
+@media (prefers-reduced-motion:reduce){.ev-fill{transition:none}}

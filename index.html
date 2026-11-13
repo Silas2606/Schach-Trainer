@@ -40,9 +40,10 @@
           </div>
         </div>
       </div>
-      <div class="board-wrap"><div class="board" id="board" aria-label="Schachbrett"></div></div>
+      <div class="board-wrap"><div class="evalbar" id="evalBar" hidden><div class="ev-fill" id="evalFill"></div><span class="ev-num" id="evalNum"></span></div><div class="board" id="board" aria-label="Schachbrett"></div></div>
       <div class="controls">
         <button class="btn" id="bHint">Hinweis</button>
+        <button class="btn" id="bUndo" hidden>Zug zurück</button>
         <button class="btn" id="bRestart">Variante neu starten</button>
         <button class="btn primary" id="bNext">Nächste Variante</button>
       </div>
@@ -57,6 +58,16 @@
       <div class="fb" id="cFb"></div>
       <div class="note" id="cNote"></div>
       <div><span class="lbl">Partie</span><div class="moves" id="cMoves"></div></div>
+      <div class="cpu">
+        <span class="lbl">Computer-Gegner</span>
+        <label for="cfgLevel">Stärke</label>
+        <select id="cfgLevel"><option value="l1">Anfänger (~600)</option><option value="l2">Fortgeschritten (~1000)</option><option value="l3">Vereinsspieler (~1500)</option><option value="l4">Stark (~2000)</option><option value="l5">Maximum</option></select>
+        <label for="cfgDev">Gegner weicht von der Theorie ab</label>
+        <select id="cfgDev"><option value="off">Nie</option><option value="some">Manchmal</option><option value="often">Oft</option></select>
+        <label for="cfgAfter">Nach dem Ende der Variante</label>
+        <select id="cfgAfter"><option value="continue">Gegen den Computer weiterspielen</option><option value="stop">Anhalten</option></select>
+        <span class="small" id="engState"></span>
+      </div>
       <div><span class="lbl">Ideen der Eröffnung</span><ul class="ideas" id="cIdeas"></ul></div>
       <div><span class="lbl">Varianten</span><div class="lines" id="cLines"></div></div>
     </aside>
@@ -120,7 +131,8 @@
   </section>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="js/vendor/chess.js"></script>
+<script src="js/engine.js"></script>
 <script src="js/openings.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/app.js"></script>

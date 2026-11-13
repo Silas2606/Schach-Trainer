@@ -35,17 +35,59 @@ function prio(o,side,li){const s=st(o,side,li);const seen=s.seen||s.ok||s.err;re
 function chooseLine(o,side,cands){let best=cands[0],bv=Infinity;for(const li of cands){const v=prio(o,side,li)+Math.random()*1000;if(v<bv){bv=v;best=li}}return best}
 function mastered(o,side){return o.parsed.filter((_,li)=>st(o,side,li).box>=3).length}
 
+// ---------- Computer-Gegner ----------
+const E=window.Engine?new Engine():null;
+let engineState=E&&!E.failed?"loading":"off";
+if(E&&E.ready)E.ready.then(()=>{engineState="ready";renderCoach();if(T.game&&canAct())ensurePre()},()=>{engineState="off";renderCoach()});
+const LEVELS={
+  l1:{name:"Anfänger (~600)",temp:140,mpv:5,depth:6,blunder:.15},
+  l2:{name:"Fortgeschritten (~1000)",temp:80,mpv:4,depth:8,blunder:.07},
+  l3:{name:"Vereinsspieler (~1500)",temp:35,mpv:3,depth:10,blunder:.02},
+  l4:{name:"Stark (~2000)",temp:12,mpv:2,depth:13,blunder:0},
+  l5:{name:"Maximum",temp:0,mpv:1,depth:16,blunder:0}};
+const DEVP={off:0,some:.12,often:.3};
+let CFG=Object.assign({level:"l2",dev:"some",after:"continue"},store.get("ot.cfg",{}));
+const evalCache=new Map();
+const uciOf=m=>m.from+m.to+(m.promotion||"");
+const toMove=u=>({from:u.slice(0,2),to:u.slice(2,4),promotion:u[4]||"q"});
+const QUAL={best:{l:"Bester Zug",s:"!",k:"good"},good:{l:"Guter Zug",s:"",k:"good"},ok:{l:"Spielbar",s:"",k:"info"},inacc:{l:"Ungenauigkeit",s:"?!",k:"bad"},mistake:{l:"Fehler",s:"?",k:"bad"},blunder:{l:"Grober Fehler",s:"??",k:"bad"}};
+function judge(preRes,afterScoreUser,uci){
+  const best=Engine.score(preRes.lines[0]);
+  if(preRes.best===uci)return{q:"best",best,after:afterScoreUser};
+  const drop=Engine.winChance(best)-Engine.winChance(afterScoreUser);
+  const q=drop<.04?"good":drop<.09?"ok":drop<.18?"inacc":drop<.3?"mistake":"blunder";
+  return{q,best,after:afterScoreUser};
+}
+const fmtCp=s=>Math.abs(s)>=9000?(s>0?"Matt in "+Math.round((10000-s)/10):"Matt gegen dich"):((s>0?"+":s<0?"−":"")+(Math.abs(s)/100).toFixed(1).replace(".",","));
+function evalWords(s){const a=Math.abs(s);const who=s>0?"du":"dein Gegner";if(a>=9000)return s>0?"du setzt matt":"du wirst matt gesetzt";if(a<50)return"ausgeglichen";if(a<150)return who+" steht etwas besser";if(a<350)return who+" steht deutlich besser";return who+" steht auf Gewinn"}
+function sanOfUci(fen,uci){const g=new Chess(fen);const m=g.move(toMove(uci));return m?m.san:uci}
+async function analyseCached(fen){if(evalCache.has(fen))return evalCache.get(fen);const r=await E.analyse(fen,{depth:12,multipv:1});evalCache.set(fen,r);return r}
+function setEvalUser(scoreUser){T.evalUser=scoreUser;renderEval()}
+function ensurePre(){
+  if(engineState!=="ready"||!T.game)return null;const fen=T.game.fen();const tok=T.token;
+  return analyseCached(fen).then(r=>{if(tok===T.token&&T.game.fen()===fen&&T.game.turn()===T.side&&r.lines[0]){setEvalUser(Engine.score(r.lines[0]))}return r});
+}
+function chooseReply(res,lv,exclude){
+  let lines=res.lines.filter(l=>l.move&&!(exclude&&exclude.has(l.move)));if(!lines.length)return null;
+  if(lv.blunder&&Math.random()<lv.blunder&&lines.length>1)return lines[lines.length-1].move;
+  if(!lv.temp)return lines[0].move;
+  const top=Engine.score(lines[0]);const w=lines.map(l=>Math.exp((Engine.score(l)-top)/lv.temp));
+  let r=Math.random()*w.reduce((a,b)=>a+b,0);for(let i=0;i<lines.length;i++){r-=w[i];if(r<=0)return lines[i].move}return lines[0].move;
+}
+
 // ---------- Trainer state ----------
-const T={op:null,side:"w",mode:"learn",game:null,node:null,path:[],target:0,errors:0,wrong:0,done:false,token:0,last:null,fb:null,showArrow:false,hinted:false,lastNote:"",lastSan:"",lastPly:0};
+const T={op:null,side:"w",mode:"learn",game:null,node:null,path:[],target:0,errors:0,wrong:0,done:false,token:0,last:null,fb:null,showArrow:false,hinted:false,lastNote:"",lastSan:"",lastPly:0,
+  free:false,freeStart:0,over:false,thinking:false,ann:{},bestArrow:null,evalUser:null,forced:false,offer:null,botNote:""};
 let sel=null,drag=null,wrongSq=null;
 
 function setOpening(o,side,opts={}){
   T.op=o;T.side=side||o.side;store.set("ot.last",{id:o.id,side:T.side,mode:T.mode});
-  renderList();startLine(opts.line,opts.prefix);
+  renderList();startLine(opts.line,opts.prefix,!!opts.forced);
 }
-function startLine(li,prefix){
+function startLine(li,prefix,forced){
   const o=T.op;T.token++;T.game=new Chess();T.node=o.root;T.path=[];T.errors=0;T.wrong=0;T.done=false;T.last=null;T.hinted=false;
-  T.lastNote="";T.lastSan="";sel=null;
+  T.lastNote="";T.lastSan="";sel=null;T.free=false;T.over=false;T.thinking=false;T.ann={};T.bestArrow=null;T.evalUser=null;T.offer=null;T.botNote="";T.pendingReply=null;
+  T.forced=!!forced&&li!=null;
   T.target=(li!=null)?li:chooseLine(o,T.side,o.root.lines);
   if(prefix&&prefix.length){
     for(const san of prefix){const c=T.node.children.get(san);if(!c)break;const r=T.game.move(san);T.node=c;T.path.push(r.san);T.last={from:r.from,to:r.to};T.lastNote=c.note;T.lastSan=r.san}
@@ -58,20 +100,44 @@ function startLine(li,prefix){
 }
 function expected(){const line=T.op.parsed[T.target];return line.moves[T.path.length]}
 function applySan(san){const r=T.game.move(san);const c=T.node.children.get(r.san);T.node=c;T.path.push(r.san);T.last={from:r.from,to:r.to};T.lastNote=c.note;T.lastSan=r.san;T.lastPly=T.path.length}
+function lineWeight(li){const s=st(T.op,T.side,li);const seen=s.seen||s.ok||s.err;return(!seen||s.due<=Date.now())?3:1}
+function pickBookChild(){
+  if(T.forced)return T.node.children.get(expected());
+  const kids=[...T.node.children.values()];const w=kids.map(c=>c.lines.reduce((a,li)=>a+lineWeight(li),0));
+  let r=Math.random()*w.reduce((a,b)=>a+b,0);for(let i=0;i<kids.length;i++){r-=w[i];if(r<=0)return kids[i]}return kids[kids.length-1];
+}
 function step(){
   if(T.node.children.size===0){finish();return}
-  if(T.game.turn()===T.side){T.showArrow=(T.mode==="learn");T.wrong=0;T.hinted=false;renderAll();return}
+  if(T.game.turn()===T.side){T.showArrow=(T.mode==="learn");T.wrong=0;T.hinted=false;T.offer=null;renderAll();ensurePre();return}
   const tok=T.token;T.showArrow=false;renderAll();
-  setTimeout(()=>{if(tok!==T.token)return;applySan(expected());renderAll();step()},520);
+  const p=DEVP[CFG.dev]||0;
+  const surprise=p>0&&engineState==="ready"&&!T.forced&&T.path.length>=2&&Math.random()<p;
+  setTimeout(async()=>{
+    if(tok!==T.token)return;
+    if(surprise){
+      const fen=T.game.fen();T.thinking=true;renderCoach();
+      const lv=LEVELS[CFG.level];const res=await E.analyse(fen,{depth:10,multipv:5});
+      if(tok!==T.token)return;T.thinking=false;
+      const book=new Set([...T.node.children.keys()].map(s=>{const g=new Chess(fen);return uciOf(g.move(s))}));
+      const top=res.lines.length?Engine.score(res.lines[0]):0;
+      const ok={lines:res.lines.filter(l=>!book.has(l.move)&&Engine.score(l)>=top-180)};
+      const u=chooseReply(ok,{...lv,blunder:0,temp:lv.temp||40});
+      if(u){const m=T.game.move(toMove(u));T.path.push(m.san);T.last={from:m.from,to:m.to};T.lastSan=m.san;T.lastNote="";T.node=null;
+        enterFree("<b>Überraschung:</b> Dein Gegner verlässt die Theorie mit <b>"+esc(moveLabel(m.san,T.path.length-1))+"</b>. Ab jetzt bewertet der Computer jeden deiner Züge.",false);return}
+    }
+    const c=pickBookChild();if(!c.lines.includes(T.target))T.target=chooseLine(T.op,T.side,c.lines);
+    applySan(c.san);renderAll();step();
+  },520);
 }
 function tryMove(from,to){
-  if(T.done||T.game.turn()!==T.side)return false;
+  if(!canAct())return false;
   const mv=T.game.move({from,to,promotion:"q"});if(!mv)return false;
   T.game.undo();
+  if(T.free){freeUserMove(mv);return true}
   const child=T.node.children.get(mv.san);
   if(child){
     const wasClean=T.wrong===0&&!T.hinted;
-    applySan(mv.san);
+    applySan(mv.san);T.offer=null;
     if(!child.lines.includes(T.target))T.target=chooseLine(T.op,T.side,child.lines);
     T.fb={k:"good",t:"<b>"+(wasClean?"Richtig":"Jetzt stimmt's")+":</b> "+esc(moveLabel(mv.san,T.path.length-1))};
     T.showArrow=false;renderAll();step();
@@ -82,11 +148,31 @@ function tryMove(from,to){
     if(T.mode==="learn"||T.wrong>=2){T.showArrow=true;T.fb={k:"bad",t:"<b>"+esc(de(mv.san))+"</b> ist hier nicht der Theoriezug. Richtig ist <b>"+esc(de(exp))+"</b>."+(childNote(exp)?" "+esc(childNote(exp)):"")}}
     else T.fb={k:"bad",t:"<b>"+esc(de(mv.san))+"</b> ist nicht der Theoriezug. Versuch es noch einmal."};
     renderAll();
+    if(engineState==="ready")rateOffBook(mv);
   }
   return true;
 }
-function childNote(san){const c=T.node.children.get(san);return c?c.note:""}
-function hint(){if(T.done||T.game.turn()!==T.side)return;if(T.mode==="quiz"&&!T.hinted&&T.wrong===0)T.errors++;T.hinted=true;T.showArrow=true;
+async function rateOffBook(mv){
+  const tok=T.token,ply=T.path.length,fen=T.game.fen();
+  const pre=await analyseCached(fen);const g=new Chess(fen);g.move(mv.san);
+  let after;if(g.in_checkmate())after=10000;else if(g.game_over())after=0;else{const r=await analyseCached(g.fen());after=-Engine.score(r.lines[0])}
+  if(tok!==T.token||T.path.length!==ply||T.free)return;
+  const j=judge(pre,after,uciOf(mv));const Q=QUAL[j.q];
+  T.offer={san:mv.san,j};
+  T.fb={k:T.fb.k,t:T.fb.t+'<div class="engine-say"><b>Computer:</b> '+esc(de(mv.san))+" wäre "+(j.q==="best"||j.q==="good"?"auch ein guter Zug":j.q==="ok"?"spielbar":"eine "+Q.l.replace("Grober Fehler","grober Fehler"))+" ("+fmtCp(j.after)+'). <button class="btn small-btn" id="bTake" type="button">Mit '+esc(de(mv.san))+' frei weiterspielen</button></div>'};
+  renderCoach();
+}
+function takeOffer(){
+  if(!T.offer||T.free||!canAct())return;const {san,j}=T.offer;T.offer=null;T.token++;
+  const m=T.game.move(san);T.path.push(m.san);T.last={from:m.from,to:m.to};T.lastSan=m.san;T.lastNote="";T.node=null;
+  T.ann[T.path.length-1]=j.q;setEvalUser(j.after);
+  enterFree("Du hast die Theorie mit <b>"+esc(moveLabel(m.san,T.path.length-1))+"</b> verlassen. Ab jetzt bewertet der Computer jeden deiner Züge.",true);
+}
+function childNote(san){const c=T.node&&T.node.children.get(san);return c?c.note:""}
+function hint(){
+  if(!canAct())return;
+  if(T.free){const fen=T.game.fen();analyseCached(fen).then(r=>{if(T.game.fen()!==fen||!r.best)return;T.bestArrow=r.best;T.fb={k:"info",t:"Der Computer empfiehlt <b>"+esc(de(sanOfUci(fen,r.best)))+"</b> ("+fmtCp(Engine.score(r.lines[0]))+")."};renderAll()});return}
+  if(T.mode==="quiz"&&!T.hinted&&T.wrong===0)T.errors++;T.hinted=true;T.showArrow=true;
   T.fb={k:"info",t:"Theoriezug: <b>"+esc(de(expected()))+"</b>"};renderAll()}
 function finish(){
   T.done=true;const o=T.op,li=T.target;const s={...st(o,T.side,li)};s.seen=1;
@@ -95,15 +181,93 @@ function finish(){
   saveSt(o,T.side,li,s);
   const allSeen=o.parsed.every((_,i)=>st(o,T.side,i).seen);
   let t;
-  if(T.mode==="quiz")t=T.errors===0?"<b>Fehlerfrei!</b> Die Variante wandert eine Stufe nach oben ("+s.box+"/5). Sie kommt später zur Wiederholung.":"<b>Variante geschafft, mit "+T.errors+" Fehler"+(T.errors>1?"n":"")+".</b> Sie kommt bald noch einmal dran.";
-  else t="<b>Variante durchgespielt.</b> "+(allSeen?"Du hast alle Varianten gesehen. Wechsle zu <b>Abfragen</b>, um sie zu festigen.":"Weiter mit der nächsten Variante.");
-  T.fb={k:"good",t};renderAll();renderList();
+  if(T.mode==="quiz")t=T.errors===0?"<b>Fehlerfrei!</b> Die Variante wandert eine Stufe nach oben ("+s.box+"/5).":"<b>Variante geschafft, mit "+T.errors+" Fehler"+(T.errors>1?"n":"")+".</b> Sie kommt bald noch einmal dran.";
+  else t="<b>Variante durchgespielt.</b>"+(allSeen?" Du hast alle Varianten gesehen. Wechsle zu <b>Abfragen</b>, um sie zu festigen.":"");
+  renderList();
+  if(engineState==="ready"&&CFG.after==="continue"&&!T.game.game_over()){enterFree(t+" Jetzt geht es ohne Theorie weiter: Der Computer bewertet deine Züge und antwortet.",T.game.turn()===T.side);return}
+  if(engineState==="ready"&&!T.game.game_over())t+=' <button class="btn small-btn" id="bPlayOn" type="button">Gegen den Computer weiterspielen</button>';
+  T.fb={k:"good",t};renderAll();
+}
+
+// ---------- Freies Spiel gegen den Computer ----------
+function enterFree(msg){
+  T.free=true;T.done=false;T.freeStart=T.path.length;T.showArrow=false;T.node=null;T.offer=null;
+  T.fb={k:"info",t:msg};renderAll();freeStep();
+}
+function freeStep(){
+  if(T.game.game_over()){endGame();return}
+  if(T.game.turn()===T.side){renderAll();ensurePre();return}
+  botFreeMove();
+}
+async function botFreeMove(){
+  const tok=T.token;T.thinking=true;renderAll();
+  const lv=LEVELS[CFG.level];const fen=T.game.fen();
+  const res=await E.analyse(fen,{depth:Math.max(lv.depth,10),multipv:lv.mpv});
+  if(tok!==T.token)return;
+  if(res.lines[0])setEvalUser(-Engine.score(res.lines[0]));
+  const u=chooseReply(res,lv)||res.best;
+  setTimeout(()=>{if(tok!==T.token)return;T.thinking=false;
+    const m=T.game.move(toMove(u));T.path.push(m.san);T.last={from:m.from,to:m.to};T.lastSan=m.san;T.lastNote="";
+    T.botNote="Der Computer spielt <b>"+esc(moveLabel(m.san,T.path.length-1))+"</b>.";
+    renderAll();freeStep()},350);
+}
+async function freeUserMove(mv){
+  const tok=++T.token;const fenBefore=T.game.fen();
+  const m=T.game.move(mv.san);T.path.push(m.san);T.last={from:m.from,to:m.to};T.lastSan=m.san;T.lastNote="";T.bestArrow=null;T.botNote="";
+  const ply=T.path.length-1;T.thinking=true;sel=null;renderAll();
+  const pre=await analyseCached(fenBefore);
+  const lv=LEVELS[CFG.level];let after,res=null;
+  if(T.game.in_checkmate())after=10000;else if(T.game.game_over())after=0;
+  else{res=await E.analyse(T.game.fen(),{depth:Math.max(12,lv.depth),multipv:Math.max(1,lv.mpv)});after=-Engine.score(res.lines[0]);
+    evalCache.set(T.game.fen(),{best:res.best,lines:res.lines.slice(0,1)})}
+  if(tok!==T.token)return;
+  const j=judge(pre,after,uciOf(m));T.ann[ply]=j.q;setEvalUser(after);
+  const Q=QUAL[j.q];let t="<b>"+esc(de(m.san))+": "+Q.l+".</b> ";
+  if(j.q==="inacc"||j.q==="mistake"||j.q==="blunder"){const bs=sanOfUci(fenBefore,pre.best);T.bestArrow=pre.best;T.bestFrom=fenBefore;
+    t+="Besser war <b>"+esc(de(bs))+"</b> ("+fmtCp(j.best)+" statt "+fmtCp(after)+"). Der grüne Pfeil zeigt ihn."}
+  else t+="Bewertung "+fmtCp(after)+", "+evalWords(after)+".";
+  T.fb={k:Q.k,t};
+  if(T.game.game_over()){T.thinking=false;endGame();return}
+  if(j.q==="inacc"||j.q==="mistake"||j.q==="blunder"){
+    T.thinking=false;T.pendingReply={tok,res,lv};
+    T.fb.t+='<div class="fb-acts"><button class="btn small-btn" id="bRetry" type="button">Zurücknehmen und besser spielen</button><button class="btn small-btn" id="bCont" type="button">So weiterspielen</button></div>';
+    renderAll();return}
+  playReply(tok,res,lv,450);
+}
+function playReply(tok,res,lv,delay){
+  const u=chooseReply(res,lv)||res.best;T.pendingReply=null;T.thinking=true;renderCoach();
+  setTimeout(()=>{if(tok!==T.token)return;T.thinking=false;
+    const r=T.game.move(toMove(u));T.path.push(r.san);T.last={from:r.from,to:r.to};T.lastSan=r.san;T.bestArrow=null;
+    T.botNote="Der Computer antwortet mit <b>"+esc(moveLabel(r.san,T.path.length-1))+"</b>.";
+    renderAll();freeStep()},delay);
+}
+function continueReply(){const p=T.pendingReply;if(!p||p.tok!==T.token)return;T.fb.t=T.fb.t.replace(/<div class="fb-acts">[\s\S]*<\/div>$/,"");playReply(p.tok,p.res,p.lv,250)}
+function undoFree(){
+  if(!T.free||T.thinking)return;
+  let n=T.game.turn()===T.side?2:1;if(T.over)T.over=false;T.pendingReply=null;
+  if(T.path.length-n<T.freeStart)n=T.path.length-T.freeStart;if(n<=0)return;
+  T.token++;for(let i=0;i<n;i++){T.game.undo();const p=T.path.pop();delete T.ann[T.path.length]}
+  const h=T.game.history({verbose:true});const l=h[h.length-1];T.last=l?{from:l.from,to:l.to}:null;T.lastSan=l?l.san:"";
+  T.bestArrow=null;T.botNote="";T.fb={k:"info",t:"Zug zurückgenommen. Du bist wieder am Zug."};
+  if(T.game.turn()!==T.side){botFreeMove();return}
+  renderAll();ensurePre();
+}
+function endGame(){
+  T.over=true;T.thinking=false;const g=T.game;let t;
+  if(g.in_checkmate())t=(g.turn()===T.side?"<b>Schachmatt.</b> Der Computer hat gewonnen.":"<b>Schachmatt!</b> Du hast gewonnen.");
+  else if(g.in_stalemate())t="<b>Patt.</b> Die Partie endet remis.";
+  else if(g.in_threefold_repetition())t="<b>Dreifache Stellungswiederholung.</b> Remis.";
+  else if(g.insufficient_material())t="<b>Remis</b> wegen ungenügenden Materials.";
+  else t="<b>Remis.</b>";
+  const qs=Object.entries(T.ann).filter(([p])=>(+p%2===0)===(T.side==="w")).map(([,q])=>q);
+  if(qs.length){const c=k=>qs.filter(q=>q===k).length;t+=" Deine Züge: "+(c("best")+c("good"))+" gut, "+c("ok")+" spielbar, "+c("inacc")+" Ungenauigkeiten, "+c("mistake")+" Fehler, "+c("blunder")+" grobe Fehler."}
+  T.fb={k:"info",t};renderAll();
 }
 
 // ---------- Board ----------
 const boardEl=$("board");const sqEls={};
 (function buildBoard(){for(let i=0;i<64;i++){const d=document.createElement("div");d.className="sq";boardEl.appendChild(d)}
-  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");svg.setAttribute("class","arrows");svg.setAttribute("viewBox","0 0 8 8");svg.innerHTML='<defs><marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--hint)"/></marker></defs><g id="arrowG"></g>';boardEl.appendChild(svg)})();
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");svg.setAttribute("class","arrows");svg.setAttribute("viewBox","0 0 8 8");svg.innerHTML='<defs><marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--hint)"/></marker><marker id="ahg" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--good)"/></marker></defs><g id="arrowG"></g>';boardEl.appendChild(svg)})();
 function sqAt(idx){const r=Math.floor(idx/8),c=idx%8;return T.side==="w"?FILES[c]+(8-r):FILES[7-c]+(r+1)}
 function xy(sq){const f=FILES.indexOf(sq[0]),r=+sq[1];return T.side==="w"?[f+.5,8-r+.5]:[7-f+.5,r-1+.5]}
 function renderBoard(){
@@ -122,13 +286,16 @@ function renderBoard(){
     if(targets.has(sq))h+=p?'<span class="ring"></span>':'<span class="dot"></span>';
     el.innerHTML=h;});
   const g=boardEl.querySelector("#arrowG");g.innerHTML="";
-  if(T.showArrow&&!T.done&&T.game.turn()===T.side){const san=expected();const tmp=new Chess(T.game.fen());const m=tmp.move(san);
-    if(m){const[a,b]=xy(m.from),[c,d]=xy(m.to);const dx=c-a,dy=d-b,L=Math.hypot(dx,dy);const ex=c-dx/L*.32,ey=d-dy/L*.32;
-      g.innerHTML='<line x1="'+a+'" y1="'+b+'" x2="'+ex+'" y2="'+ey+'" stroke="var(--hint)" stroke-width=".17" stroke-linecap="round" opacity=".85" marker-end="url(#ah)"/>'}}
+  const arrow=(from,to,col,mk)=>{const[a,b]=xy(from),[c,d]=xy(to);const dx=c-a,dy=d-b,L=Math.hypot(dx,dy);const ex=c-dx/L*.32,ey=d-dy/L*.32;
+    return '<line x1="'+a+'" y1="'+b+'" x2="'+ex+'" y2="'+ey+'" stroke="'+col+'" stroke-width=".17" stroke-linecap="round" opacity=".85" marker-end="url(#'+mk+')"/>'};
+  let ah="";
+  if(T.showArrow&&!T.done&&!T.free&&T.node&&T.game.turn()===T.side){const tmp=new Chess(T.game.fen());const m=tmp.move(expected());if(m)ah+=arrow(m.from,m.to,"var(--hint)","ah")}
+  if(T.bestArrow)ah+=arrow(T.bestArrow.slice(0,2),T.bestArrow.slice(2,4),"var(--good)","ahg");
+  g.innerHTML=ah;
 }
 function sqFromPoint(x,y){const r=boardEl.getBoundingClientRect();if(x<r.left||y<r.top||x>=r.right||y>=r.bottom)return null;
   const c=Math.floor((x-r.left)/r.width*8),rw=Math.floor((y-r.top)/r.height*8);return sqAt(rw*8+c)}
-function canAct(){return T.game&&!T.done&&T.game.turn()===T.side}
+function canAct(){return !!T.game&&!T.over&&!T.thinking&&!T.pendingReply&&T.game.turn()===T.side&&(T.free||!T.done)}
 boardEl.addEventListener("pointerdown",e=>{
   const sq=sqFromPoint(e.clientX,e.clientY);if(!sq)return;e.preventDefault();
   if(sel&&sel!==sq){const ok=tryMove(sel,sq);if(ok){sel=null;renderBoard();return}}
@@ -150,25 +317,45 @@ boardEl.addEventListener("pointerup",endDrag);boardEl.addEventListener("pointerc
 // ---------- Coach panel ----------
 function moveLabel(san,ply){return (ply%2===0?(ply/2+1)+". ":(Math.floor(ply/2)+1)+"… ")+de(san)}
 function fmtSeq(sans,start=0){let s="";sans.forEach((m,i)=>{const p=start+i;if(p%2===0)s+=(p/2+1)+"."+de(m)+" ";else s+=(i===0?(Math.floor(p/2)+1)+"…":"")+de(m)+" "});return s.trim()}
+function renderEval(){
+  const bar=$("evalBar");if(!bar)return;
+  if(T.evalUser==null){bar.hidden=true;return}
+  bar.hidden=false;const wc=Engine.winChance(T.evalUser);const mine=(wc+1)/2;
+  const fill=$("evalFill");fill.style.height=(mine*100)+"%";fill.className="ev-fill "+(T.side==="w"?"w":"b");
+  bar.className="evalbar "+(T.side==="w"?"me-w":"me-b");
+  $("evalNum").textContent=fmtCp(T.evalUser);bar.title="Bewertung aus deiner Sicht: "+fmtCp(T.evalUser);
+}
 function renderCoach(){
   const o=T.op;$("cEco").textContent=o.eco+" · "+(T.side==="w"?"du spielst Weiß":"du spielst Schwarz");
-  $("cName").textContent=o.name;$("cLine").textContent="Variante: "+o.parsed[T.target].name;
+  $("cName").textContent=o.name;
+  $("cLine").textContent=T.free?"Freies Spiel gegen den Computer · "+LEVELS[CFG.level].name+" · ab Zug "+(Math.floor(T.freeStart/2)+1):"Variante: "+o.parsed[T.target].name;
   const fb=$("cFb");fb.className="fb "+(T.fb?T.fb.k:"");fb.innerHTML=T.fb?T.fb.t:"";
   let note="";
-  if(T.lastSan&&T.lastNote)note='<span class="lbl">Zu '+esc(moveLabel(T.lastSan,T.path.length-1))+'</span>'+esc(T.lastNote);
-  if(T.showArrow&&!T.done&&T.game.turn()===T.side){const n=childNote(expected());if(n)note+=(note?'<div style="height:8px"></div>':"")+'<span class="lbl">Dein nächster Zug: '+esc(de(expected()))+'</span>'+esc(n)}
+  if(T.free){if(T.botNote)note=T.botNote;if(T.evalUser!=null)note+=(note?"<br>":"")+'<span class="small">Stellung: '+fmtCp(T.evalUser)+", "+evalWords(T.evalUser)+"</span>"}
+  else{
+    if(T.lastSan&&T.lastNote)note='<span class="lbl">Zu '+esc(moveLabel(T.lastSan,T.path.length-1))+'</span>'+esc(T.lastNote);
+    if(T.showArrow&&!T.done&&T.node&&T.game.turn()===T.side){const n=childNote(expected());if(n)note+=(note?'<div style="height:8px"></div>':"")+'<span class="lbl">Dein nächster Zug: '+esc(de(expected()))+'</span>'+esc(n)}
+  }
   $("cNote").innerHTML=note||'<span class="small">Erklärungen erscheinen hier nach jedem wichtigen Zug.</span>';
-  let mh="";T.path.forEach((m,i)=>{if(i%2===0)mh+='<span><span class="num">'+(i/2+1)+'.</span> ';mh+='<span class="'+(i===T.path.length-1?"cur":"")+'">'+esc(de(m))+'</span> ';if(i%2===1||i===T.path.length-1)mh+="</span>"});
+  let mh="";T.path.forEach((m,i)=>{if(i%2===0)mh+='<span><span class="num">'+(i/2+1)+'.</span> ';
+    const q=T.ann[i];const Q=q&&QUAL[q];const sep=T.free&&i===T.freeStart?'<span class="freesep" title="Ab hier freies Spiel">│</span>':"";
+    mh+=sep+'<span class="'+(i===T.path.length-1?"cur ":"")+(q?"q-"+q:"")+'"'+(Q?' title="'+Q.l+'"':"")+'>'+esc(de(m))+(Q&&Q.s?'<sup>'+Q.s+'</sup>':"")+'</span> ';
+    if(i%2===1||i===T.path.length-1)mh+="</span>"});
   $("cMoves").innerHTML=mh||'<span class="small">Noch keine Züge</span>';
   $("cIdeas").innerHTML=o.ideas.map(x=>"<li>"+esc(x)+"</li>").join("");
-  $("cLines").innerHTML=o.parsed.map((l,li)=>{const[c,lab]=status(st(o,T.side,li));return '<button data-li="'+li+'" aria-current="'+(li===T.target)+'"><span>'+esc(l.name)+'</span><span class="chip '+c+'">'+lab+'</span></button>'}).join("");
-  const s=$("status");const you=canAct();s.className="status "+(T.done?"done":you?"you":"");
-  $("statusText").textContent=T.done?"Variante beendet":you?"Du bist am Zug":"Gegner zieht …";
-  $("bHint").disabled=!you;
+  $("cLines").innerHTML=o.parsed.map((l,li)=>{const[c,lab]=status(st(o,T.side,li));return '<button data-li="'+li+'" aria-current="'+(li===T.target&&!T.free)+'"><span>'+esc(l.name)+'</span><span class="chip '+c+'">'+lab+'</span></button>'}).join("");
+  const s=$("status");const you=canAct();s.className="status "+(T.over||T.done?"done":you?"you":"");
+  $("statusText").textContent=T.over?"Partie beendet":T.done?"Variante beendet":T.thinking?"Computer denkt …":T.pendingReply?"Zurücknehmen oder weiterspielen?":you?(T.free?"Du bist am Zug · freies Spiel":"Du bist am Zug"):"Gegner zieht …";
+  $("bHint").disabled=!you||(T.free&&engineState!=="ready");
+  $("bUndo").hidden=!T.free;$("bUndo").disabled=T.thinking||T.path.length<=T.freeStart;
   $("mLearn").setAttribute("aria-pressed",T.mode==="learn");$("mQuiz").setAttribute("aria-pressed",T.mode==="quiz");
   $("sW").setAttribute("aria-pressed",T.side==="w");$("sB").setAttribute("aria-pressed",T.side==="b");
+  $("engState").textContent=engineState==="ready"?"Stockfish 18 bereit":engineState==="loading"?"Engine lädt …":"Engine nicht verfügbar. Öffne die App über GitHub Pages oder einen Webserver.";
+  $("engState").className="small eng-"+engineState;
+  ["cfgLevel","cfgDev","cfgAfter"].forEach(id=>$(id).disabled=engineState==="off");
+  renderEval();
 }
-$("cLines").addEventListener("click",e=>{const b=e.target.closest("button[data-li]");if(b)startLine(+b.dataset.li)});
+$("cLines").addEventListener("click",e=>{const b=e.target.closest("button[data-li]");if(b)startLine(+b.dataset.li,null,true)});
 function renderAll(){renderBoard();renderCoach()}
 
 // ---------- Opening list ----------
@@ -192,7 +379,15 @@ $("pickerToggle").addEventListener("click",()=>$("side").classList.toggle("open"
 
 // ---------- Controls ----------
 $("bHint").onclick=hint;
-$("bRestart").onclick=()=>startLine(T.target);
+$("bUndo").onclick=undoFree;
+$("cFb").addEventListener("click",e=>{const id=e.target&&e.target.id;
+  if(id==="bTake")takeOffer();
+  else if(id==="bPlayOn"){if(engineState==="ready"&&T.done&&!T.free)enterFree("Jetzt geht es ohne Theorie weiter. Der Computer bewertet deine Züge und antwortet.")}
+  else if(id==="bRetry")undoFree();
+  else if(id==="bCont")continueReply()});
+$("cfgLevel").value=CFG.level;$("cfgDev").value=CFG.dev;$("cfgAfter").value=CFG.after;
+["cfgLevel","cfgDev","cfgAfter"].forEach(id=>$(id).onchange=()=>{CFG={level:$("cfgLevel").value,dev:$("cfgDev").value,after:$("cfgAfter").value};store.set("ot.cfg",CFG);renderCoach()});
+$("bRestart").onclick=()=>startLine(T.target,null,T.forced);
 $("bNext").onclick=()=>startLine();
 $("mLearn").onclick=()=>{T.mode="learn";store.set("ot.last",{id:T.op.id,side:T.side,mode:T.mode});startLine()};
 $("mQuiz").onclick=()=>{T.mode="quiz";store.set("ot.last",{id:T.op.id,side:T.side,mode:T.mode});startLine()};
