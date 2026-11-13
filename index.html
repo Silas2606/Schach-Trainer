@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Schach Eröffnungstrainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Symbols+2&text=%E2%99%9A%E2%99%9B%E2%99%9C%E2%99%9D%E2%99%9E%E2%99%9F&display=block">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><h1>Eröffnungstrainer</h1><span class="sub">Theorie lernen, abfragen, wiederholen</span></div>
+    <nav class="tabs" role="tablist">
+      <button id="tab-train" role="tab" aria-selected="true">Training</button>
+      <button id="tab-ana" role="tab" aria-selected="false">Meine Partien</button>
+      <button id="tab-sync" role="tab" aria-selected="false">Speichern</button>
+    </nav>
+    <button class="sync-chip" id="syncChip" type="button"><span class="pip"></span><span id="syncText">Nur auf diesem Gerät</span></button>
+  </header>
+
+  <section id="view-train" class="train">
+    <aside class="panel side" id="side">
+      <button class="picker-toggle" id="pickerToggle"><span id="pickerLabel">Eröffnung wählen</span><span>▾</span></button>
+      <input type="search" id="opSearch" placeholder="Eröffnung suchen …" aria-label="Eröffnung suchen">
+      <div class="list" id="opList"></div>
+    </aside>
+
+    <div class="center">
+      <div class="board-bar">
+        <div class="status" id="status"><span class="pip"></span><span id="statusText">…</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="seg" role="group" aria-label="Modus">
+            <button id="mLearn" aria-pressed="true">Lernen</button><button id="mQuiz" aria-pressed="false">Abfragen</button>
+          </div>
+          <div class="seg" role="group" aria-label="Deine Farbe">
+            <button id="sW" aria-pressed="true">Weiß</button><button id="sB" aria-pressed="false">Schwarz</button>
+          </div>
+        </div>
+      </div>
+      <div class="board-wrap"><div class="board" id="board" aria-label="Schachbrett"></div></div>
+      <div class="controls">
+        <button class="btn" id="bHint">Hinweis</button>
+        <button class="btn" id="bRestart">Variante neu starten</button>
+        <button class="btn primary" id="bNext">Nächste Variante</button>
+      </div>
+    </div>
+
+    <aside class="panel coach" id="coach">
+      <div>
+        <div class="eco" id="cEco"></div>
+        <h2 id="cName"></h2>
+        <div class="ln" id="cLine"></div>
+      </div>
+      <div class="fb" id="cFb"></div>
+      <div class="note" id="cNote"></div>
+      <div><span class="lbl">Partie</span><div class="moves" id="cMoves"></div></div>
+      <div><span class="lbl">Ideen der Eröffnung</span><ul class="ideas" id="cIdeas"></ul></div>
+      <div><span class="lbl">Varianten</span><div class="lines" id="cLines"></div></div>
+    </aside>
+  </section>
+
+  <section id="view-ana" class="ana" hidden>
+    <aside class="panel src">
+      <div class="step">
+        <span class="h">1. Partien von Chess.com holen</span>
+        <label for="uName">Dein Chess.com-Benutzername</label>
+        <input type="text" id="uName" placeholder="z. B. MaxMustermann" autocomplete="off">
+        <div class="links" id="dlLinks"></div>
+        <span class="small">Jeder Link öffnet einen Monat deiner Partien als PGN-Datei bei Chess.com. Speichere die Dateien und lade sie unten hoch.</span>
+      </div>
+      <div class="step">
+        <span class="h">2. PGN hochladen</span>
+        <div class="drop" id="drop">PGN-Dateien hierher ziehen oder<br><input type="file" id="fileIn" accept=".pgn,.txt" multiple style="margin-top:8px;max-width:100%"></div>
+        <label for="pgnText">Oder PGN-Text einfügen</label>
+        <textarea id="pgnText" placeholder='[Event "Live Chess"] …'></textarea>
+        <button class="btn primary" id="bAnalyze">Partien analysieren</button>
+        <button class="btn" id="bSample">Beispieldaten ansehen</button>
+        <span class="small" id="anaMsg"></span>
+      </div>
+      <div class="step">
+        <span class="h">Filter</span>
+        <label for="tcFilter">Bedenkzeit</label>
+        <select id="tcFilter"><option value="all">Alle</option><option value="blitz">Blitz</option><option value="rapid">Schnellschach</option><option value="bullet">Bullet</option><option value="daily">Täglich</option></select>
+      </div>
+    </aside>
+    <div class="res" id="res"></div>
+  </section>
+  <section id="view-sync" class="sync" hidden>
+    <div class="panel sync-card">
+      <h2>Fortschritt in GitHub speichern</h2>
+      <p>Wenn du verbunden bist, speichert die App deinen Lernstand und deine Partien-Auswertung automatisch als Datei <code>fortschritt.json</code> im Branch <code>fortschritt</code> deines Repositorys. So hast du denselben Stand auf jedem Gerät.</p>
+      <div class="form">
+        <label for="gRepo">Repository</label>
+        <input type="text" id="gRepo" placeholder="Benutzer/Repository" autocomplete="off">
+        <label for="gBranch">Branch für den Fortschritt</label>
+        <input type="text" id="gBranch" placeholder="fortschritt" autocomplete="off">
+        <label for="gToken">GitHub-Token</label>
+        <input type="password" id="gToken" placeholder="github_pat_…" autocomplete="off">
+        <div class="row">
+          <button class="btn primary" id="gConnect" type="button">Verbinden und laden</button>
+          <button class="btn" id="gSaveNow" type="button">Jetzt speichern</button>
+          <button class="btn" id="gDisconnect" type="button">Trennen</button>
+        </div>
+        <div class="fb" id="gMsg" hidden></div>
+      </div>
+    </div>
+    <div class="panel sync-card">
+      <h3>So erstellst du den Token (einmal pro Gerät)</h3>
+      <ol>
+        <li>Öffne auf GitHub <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Settings → Developer settings → Fine-grained tokens → Generate new token</a>.</li>
+        <li>Bei <b>Repository access</b> wählst du <b>Only select repositories</b> und nur dieses Repository.</li>
+        <li>Bei <b>Permissions → Repository permissions</b> setzt du <b>Contents</b> auf <b>Read and write</b>. Sonst nichts.</li>
+        <li>Token kopieren, oben einfügen, auf <b>Verbinden und laden</b> klicken.</li>
+      </ol>
+      <p class="small">Der Token bleibt nur in diesem Browser gespeichert und wird nie ins Repository geschrieben. Ist dein Repository öffentlich, kann jeder die Datei <code>fortschritt.json</code> lesen. Sie enthält nur deinen Lernstand und deine Eröffnungsstatistik.</p>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="js/openings.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
