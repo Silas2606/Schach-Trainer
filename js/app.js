@@ -266,7 +266,21 @@ function endGame(){
 
 // ---------- Board ----------
 const boardEl=$("board");const sqEls={};
-(function buildBoard(){for(let i=0;i<64;i++){const d=document.createElement("div");d.className="sq";boardEl.appendChild(d)}
+// Holzmaserung: zwei Texturen werden einmal per Canvas erzeugt, jedes Feld zeigt einen anderen Ausschnitt.
+function woodTexture(base,amp,seed){
+  const N=512,c=document.createElement("canvas");c.width=c.height=N;const ctx=c.getContext("2d");const img=ctx.createImageData(N,N);
+  let sd=seed;const rnd=()=>(sd=(sd*16807)%2147483647)/2147483647;
+  const oct=[[34,.36],[9,.3],[2.6,.22],[1,.12]].map(([step,a])=>{const n=Math.ceil((N+80)/step)+2;const v=Array.from({length:n},rnd);return{step,a,v}});
+  const noise=u=>{let t=0;for(const o of oct){const x=u/o.step,i=Math.floor(x),f=x-i,w=(1-Math.cos(f*Math.PI))/2;t+=o.a*(o.v[i]*(1-w)+o.v[i+1]*w)}return t};
+  const p1=rnd()*6.3,p2=rnd()*6.3,d=img.data;
+  for(let y=0;y<N;y++){const wob=Math.sin(y/N*6.28*.8+p1)*4+Math.sin(y/N*6.28*2.3+p2)*1.5+30;
+    for(let x=0;x<N;x++){let v=noise(x+wob)-.5;v=v+(Math.pow(Math.abs(v),.6)*Math.sign(v)-v)*.6+(rnd()-.5)*.08;
+      const k=(y*N+x)*4;d[k]=base[0]+v*amp;d[k+1]=base[1]+v*amp*.92;d[k+2]=base[2]+v*amp*.8;d[k+3]=255}}
+  ctx.putImageData(img,0,0);return c.toDataURL("image/jpeg",.86);
+}
+try{boardEl.style.setProperty("--wood-l","url("+woodTexture([196,168,130],40,11)+")");boardEl.style.setProperty("--wood-d","url("+woodTexture([114,82,57],34,29)+")")}catch(e){}
+(function buildBoard(){let sd=7;const r=()=>(sd=(sd*16807)%2147483647)/2147483647;
+  for(let i=0;i<64;i++){const d=document.createElement("div");d.className="sq";d.style.backgroundPosition=(r()*100).toFixed(1)+"% "+(r()*100).toFixed(1)+"%";boardEl.appendChild(d)}
   const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");svg.setAttribute("class","arrows");svg.setAttribute("viewBox","0 0 8 8");svg.innerHTML='<defs><marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--hint)"/></marker><marker id="ahg" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--good)"/></marker></defs><g id="arrowG"></g>';boardEl.appendChild(svg)})();
 function sqAt(idx){const r=Math.floor(idx/8),c=idx%8;return T.side==="w"?FILES[c]+(8-r):FILES[7-c]+(r+1)}
 function xy(sq){const f=FILES.indexOf(sq[0]),r=+sq[1];return T.side==="w"?[f+.5,8-r+.5]:[7-f+.5,r-1+.5]}
@@ -282,7 +296,7 @@ function renderBoard(){
     const rowIdx=Math.floor(i/8),colIdx=i%8;
     if(colIdx===0)h+='<span class="co r">'+sq[1]+'</span>';
     if(rowIdx===7)h+='<span class="co f">'+sq[0]+'</span>';
-    if(p)h+='<span class="pc '+p.color+'">'+GL[p.type]+'︎</span>';
+    if(p)h+='<span class="pc p-'+p.color+p.type+'"></span>';
     if(targets.has(sq))h+=p?'<span class="ring"></span>':'<span class="dot"></span>';
     el.innerHTML=h;});
   const g=boardEl.querySelector("#arrowG");g.innerHTML="";
@@ -301,7 +315,7 @@ boardEl.addEventListener("pointerdown",e=>{
   if(sel&&sel!==sq){const ok=tryMove(sel,sq);if(ok){sel=null;renderBoard();return}}
   const p=T.game.get(sq);
   if(p&&p.color===T.side&&canAct()){sel=sq;drag={sq,id:e.pointerId,moved:false};
-    const gh=document.createElement("span");gh.className="pc ghost "+p.color;gh.textContent=GL[p.type]+"︎";gh.id="ghost";
+    const gh=document.createElement("span");gh.className="pc ghost p-"+p.color+p.type;gh.id="ghost";
     const r=boardEl.getBoundingClientRect();gh.style.left=(e.clientX-r.left)+"px";gh.style.top=(e.clientY-r.top)+"px";gh.style.display="none";boardEl.appendChild(gh);
     try{boardEl.setPointerCapture(e.pointerId)}catch(_){}}
   else sel=null;

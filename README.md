@@ -45,6 +45,7 @@ Der Fortschritt liegt absichtlich in einem eigenen Branch, damit GitHub Pages ni
 | `js/sync.js` | Automatisches Speichern über die GitHub-API |
 | `js/engine.js` | Anbindung an Stockfish (UCI über Web Worker) |
 | `js/vendor/chess.js` | Schachregeln ([chess.js](https://github.com/jhlywa/chess.js) 0.10.3, BSD-Lizenz) |
+| `pieces/` | Figuren als SVG, nach dem Satz „cburnett“ von Colin M. L. Burnett (GPLv2+), mit Schattierung |
 | `engine/` | [Stockfish.js](https://github.com/nmrugg/stockfish.js) 18 lite, GPL-3.0 (siehe `engine/Copying.txt`) |
 
 Neue Varianten trägst du in `js/openings.js` ein. Züge in englischer Notation (N, B, R, Q, K), Kommentare direkt hinter dem Zug in `{…}`.
