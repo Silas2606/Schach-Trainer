@@ -1,0 +1,13 @@
+{
+ "app": "schach-eroeffnungstrainer",
+ "version": 1,
+ "gespeichert": "2026-11-13T15:23:17.559Z",
+ "prog": {},
+ "ana": null,
+ "user": "",
+ "last": {
+  "id": "italian",
+  "side": "w",
+  "mode": "learn"
+ }
+}
